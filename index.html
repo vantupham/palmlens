@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>PalmLens AI · Đọc chỉ tay bằng khoa học và truyền thống</title>
+    <meta name="description" content="Đưa lòng bàn tay lên camera: AI dò 21 điểm khớp, tìm đường chỉ tay và đọc chúng theo hai cách: khoa học đo được và truyền thống người xưa tin. Ảnh không rời khỏi máy bạn." />
+    <meta name="theme-color" content="#0e0b1f" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="PalmLens AI · Bàn tay bạn nói gì?" />
+    <meta property="og:description" content="Điều khoa học đo được và điều người xưa tin, trên chính bàn tay bạn. Có Chế độ Cặp đôi." />
+    <meta property="og:url" content="https://vantupham.github.io/palmlens/" />
+    <meta property="og:image" content="https://vantupham.github.io/palmlens/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  </head>
+  <body data-layer="mystic">
+    <header class="topbar">
+      <a class="brand" href="#/" aria-label="PalmLens AI">
+        <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 21c3-1 6-1 9 0M10 14c4 1 8 3 12 7M12 9c1 6 1 12-1 17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span>PalmLens <b>AI</b></span>
+      </a>
+      <div class="layer-switch" id="layerSwitch" role="radiogroup" hidden>
+        <button role="radio" data-layer="science"></button>
+        <span class="knob" aria-hidden="true"></span>
+        <button role="radio" data-layer="mystic"></button>
+      </div>
+      <button class="lang" id="langBtn"></button>
+    </header>
+    <main id="app"></main>
+    <footer class="foot" id="foot"></footer>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

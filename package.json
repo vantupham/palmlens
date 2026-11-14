@@ -1,0 +1,22 @@
+{
+  "name": "palmlens",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "PalmLens AI — đọc bàn tay bằng thị giác máy tính: điều khoa học đo được và điều người xưa tin.",
+  "scripts": {
+    "prepare-assets": "node scripts/copy-wasm.mjs",
+    "fetch-model": "node scripts/fetch-model.mjs",
+    "dev": "npm run prepare-assets && vite",
+    "build": "npm run prepare-assets && tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^1.2.3"
+  }
+}
