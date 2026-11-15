@@ -9,15 +9,16 @@ const REMOTE_MODEL =
 let imageLm: Promise<HandLandmarker> | null = null;
 let videoLm: Promise<HandLandmarker> | null = null;
 
-async function modelPath(): Promise<string> {
+/** Prefer the copy served by this site; fall back to Google's model URL. */
+export async function modelPath(local = LOCAL_MODEL, remote = REMOTE_MODEL): Promise<string> {
   try {
-    const r = await fetch(LOCAL_MODEL, { method: 'HEAD' });
+    const r = await fetch(local, { method: 'HEAD' });
     // some static hosts answer missing files with the SPA's index.html
-    if (r.ok && !(r.headers.get('content-type') ?? '').includes('text/html')) return LOCAL_MODEL;
+    if (r.ok && !(r.headers.get('content-type') ?? '').includes('text/html')) return local;
   } catch {
     /* fall through */
   }
-  return REMOTE_MODEL;
+  return remote;
 }
 
 async function create(mode: 'IMAGE' | 'VIDEO', numHands: number): Promise<HandLandmarker> {

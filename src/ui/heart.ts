@@ -1,7 +1,8 @@
 import { getLang, t } from '../i18n';
 import type { Pt } from '../types';
 import { getVideoLandmarker, toHands } from '../vision/landmarker';
-import { detectHeart, heartPath, type HeartPose } from '../vision/heart';
+import { detectHeart, heartPath, samePersonScore, type HeartPose } from '../vision/heart';
+import { countFaces, getFaceDetector } from '../vision/faces';
 import { drawSkeleton } from '../render/draw';
 import { shareCanvas } from '../share/card';
 import { siteUrl } from '../share/codec';
@@ -37,7 +38,7 @@ export function drawHeart(g: CanvasRenderingContext2D, pose: Pick<HeartPose, 'to
 }
 
 /** The keepsake photo: mirrored like the preview, heart glow, sparkles, names. */
-export function composeHeartPhoto(frame: CanvasImageSource & { width: number; height: number }, a: Pt[], b: Pt[], pose: HeartPose, names: [string, string]): HTMLCanvasElement {
+export function composeHeartPhoto(frame: CanvasImageSource & { width: number; height: number }, a: Pt[], b: Pt[], pose: HeartPose, names: [string, string], solo = false): HTMLCanvasElement {
   const W = frame.width, H = frame.height;
   const c = document.createElement('canvas');
   c.width = W;
@@ -88,8 +89,10 @@ export function composeHeartPhoto(frame: CanvasImageSource & { width: number; he
   g.textAlign = 'center';
   g.fillStyle = '#fff';
   g.font = `700 ${Math.round(band * 0.36)}px Georgia, serif`;
-  const who = names.filter(Boolean).join('  ♥  ');
-  g.fillText(who || '♥', W / 2, H - band * 0.62);
+  const who = solo
+    ? (getLang() === 'vi' ? 'Đang chờ một nửa còn lại ♥' : 'Waiting for my other half ♥')
+    : names.filter(Boolean).join('  ♥  ') || '♥';
+  g.fillText(who, W / 2, H - band * 0.62);
   g.fillStyle = '#e8c372';
   g.font = `600 ${Math.round(band * 0.17)}px ui-sans-serif, system-ui, sans-serif`;
   g.fillText(`PALMLENS AI · vantupham.github.io/palmlens`, W / 2, H - band * 0.22);
@@ -106,7 +109,8 @@ export function heartGame(names: [string, string] = ['', '']) {
   const stage = h('div', { class: 'stage' });
   const placeholder = h('div', { class: 'placeholder' }, h('div', null,
     h('div', { style: 'font-size:64px' }, '🫶'),
-    h('p', null, vi ? 'Mỗi người đưa MỘT bàn tay, cong như chữ C. Đầu ngón tay chạm nhau ở trên, hai ngón cái chạm nhau ở dưới.' : 'Each person shows ONE hand curved like a C. Fingertips touch at the top, thumbs touch at the bottom.')));
+    h('p', null, vi ? 'Mỗi người đưa MỘT bàn tay, cong như chữ C. Đầu ngón tay chạm nhau ở trên, hai ngón cái chạm nhau ở dưới.' : 'Each person shows ONE hand curved like a C. Fingertips touch at the top, thumbs touch at the bottom.'),
+    h('p', { class: 'tiny' }, vi ? 'Chỉ có một mình? Vẫn chơi được, AI sẽ nhận ra và chờ người ấy vài giây.' : 'On your own? You can still play; the AI notices and waits a few seconds for your partner.')));
   stage.append(placeholder);
   const status = h('div', { class: 'status' }, vi ? 'Ghép một trái tim nào!' : 'Make a heart!');
   const ring = h('div', { class: 'count' });
@@ -133,7 +137,10 @@ export function heartGame(names: [string, string] = ['', '']) {
     placeholder.remove();
     stage.append(video, overlay, status, ring);
     startBtn.hidden = true;
-    let held = 0, lastT = 0;
+    let held = 0, lastT = 0, lastFace = 0, faces = -1, soloEma = 0, soloSince = 0;
+    let faceDet: Awaited<ReturnType<typeof getFaceDetector>> = null;
+    getFaceDetector().then((d) => (faceDet = d));
+    const WAIT_MS = 4500; // how long to wait for a partner before snapping a solo heart
     const tick = () => {
       if (stopped) return;
       const now = performance.now();
@@ -144,6 +151,7 @@ export function heartGame(names: [string, string] = ['', '']) {
         const g = overlay.getContext('2d')!;
         g.clearRect(0, 0, vw, vh);
         const hands = toHands(lmk.detectForVideo(video, now), vw, vh, false);
+        if (faceDet && now - lastFace > 500) { lastFace = now; faces = countFaces(faceDet, video, now); }
         hands.forEach((hd) => drawSkeleton(g, hd.landmarks, vw / 1000, 'rgba(255,200,220,0.85)'));
         if (hands.length < 2) {
           held = 0;
@@ -151,10 +159,24 @@ export function heartGame(names: [string, string] = ['', '']) {
         } else {
           const [a, b] = hands;
           const pose = detectHeart(a.landmarks, b.landmarks);
+          // one person or two? faces are strong evidence; hand geometry decides otherwise
+          let same = samePersonScore(a.landmarks, b.landmarks);
+          if (faces >= 2) same = -1;
+          else if (faces === 1) same += 0.6;
           if (pose.ok) {
+            soloEma = soloEma * 0.7 + (same > 0.3 ? 0.3 : 0);
+            const solo = soloEma > 0.6;
+            if (solo && !soloSince) soloSince = now;
+            if (!solo) soloSince = 0;
             held++;
             drawHeart(g, pose, Math.min(1, held / 8), Math.max(3, vw / 260));
-            status.textContent = vi ? 'Giữ yên… ♥' : 'Hold it… ♥';
+            const waitLeft = solo ? Math.max(0, WAIT_MS - (now - soloSince)) : 0;
+            status.textContent = solo
+              ? waitLeft > 0
+                ? (vi ? `Bạn đang tự thả tim cho chính mình 😄 Rủ người ấy vào khung nhé! (${Math.ceil(waitLeft / 1000)})` : `You're sending a heart to yourself 😄 Get your partner in the frame! (${Math.ceil(waitLeft / 1000)})`)
+                : (vi ? 'Thôi được, chụp trái tim tự thả nhé… ♥' : 'Okay, a solo heart it is… ♥')
+              : (vi ? 'Giữ yên… ♥' : 'Hold it… ♥');
+            if (waitLeft > 0) held = Math.min(held, 10); // hold off the snap while waiting for a partner
           } else {
             held = Math.max(0, held - 2);
             status.textContent = pose.score > 0.5 ? (vi ? 'Gần được rồi! Chạm đầu ngón và ngón cái' : 'Almost! Touch fingertips and thumbs') : (vi ? 'Ghép một trái tim nào!' : 'Make a heart!');
@@ -167,8 +189,9 @@ export function heartGame(names: [string, string] = ['', '']) {
             frame.width = vw; frame.height = vh;
             frame.getContext('2d')!.drawImage(video, 0, 0);
             stop();
-            track('heart_captured');
-            showHeartResult(composeHeartPhoto(frame, a.landmarks, b.landmarks, pose, names), names);
+            const solo = soloEma > 0.6;
+            track('heart_captured', solo ? 'solo' : 'duo');
+            showHeartResult(composeHeartPhoto(frame, a.landmarks, b.landmarks, pose, names, solo), names, solo);
             return;
           }
         }
@@ -187,11 +210,13 @@ export function heartGame(names: [string, string] = ['', '']) {
   ));
 }
 
-function showHeartResult(photo: HTMLCanvasElement, names: [string, string]) {
+function showHeartResult(photo: HTMLCanvasElement, names: [string, string], solo = false) {
   const vi = getLang() === 'vi';
   const img = h('img', { src: photo.toDataURL('image/jpeg', 0.92), alt: vi ? 'Ảnh trái tim hai bàn tay' : 'Two-hand heart photo', style: 'width:100%;display:block' });
   mount(h('section', { class: 'stack fade-in', style: 'max-width:820px;margin:0 auto' },
-    h('div', { class: 'headline' }, h('div', { class: 'el' }, '🫶'), h('h1', null, vi ? 'Một trái tim, hai bàn tay' : 'One heart, two hands')),
+    h('div', { class: 'headline' }, h('div', { class: 'el' }, '🫶'),
+      h('h1', null, solo ? (vi ? 'Một trái tim tự thả' : 'A solo heart') : vi ? 'Một trái tim, hai bàn tay' : 'One heart, two hands'),
+      solo ? h('p', { class: 'muted' }, vi ? 'Có vẻ cả hai bàn tay đều là của bạn. Rủ người ấy chụp lại cùng nhau nhé!' : 'Looks like both hands were yours. Try again together with your partner!') : null),
     h('div', { class: 'viewer' }, img),
     h('div', { class: 'actions-bar' },
       h('button', { class: 'btn primary', onclick: async () => {
@@ -199,7 +224,7 @@ function showHeartResult(photo: HTMLCanvasElement, names: [string, string]) {
         track('card_share', `heart-${r}`);
         if (r === 'downloaded') toast(t('download') + ' ✓');
       } }, t('share')),
-      h('button', { class: 'btn', onclick: () => heartGame(names) }, vi ? 'Chụp lại' : 'Try again'),
+      h('button', { class: solo ? 'btn primary' : 'btn', onclick: () => heartGame(names) }, solo ? (vi ? 'Chụp lại cùng người ấy' : 'Retake together') : vi ? 'Chụp lại' : 'Try again'),
       h('button', { class: 'btn ghost', onclick: () => nav.home() }, t('again')),
     ),
   ));

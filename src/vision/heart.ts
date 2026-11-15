@@ -49,3 +49,26 @@ export function heartPath(top: Pt, bottom: Pt, width: number, steps = 90): Pt[] 
   }
   return pts;
 }
+
+/**
+ * Are both hands likely to belong to ONE person? Returns -1 (two people) … +1 (one person).
+ *
+ * Forearm direction is estimated from the middle knuckle back through the wrist.
+ * One person making a heart holds both forearms fairly upright, converging on one
+ * body below. Two people side by side reach in from opposite sides, so their
+ * forearms slant strongly outward. Similar hand size adds a little evidence.
+ */
+export function samePersonScore(a: Pt[], b: Pt[]): number {
+  const slant = (h: Pt[]) => {
+    const dx = h[0].x - h[9].x, dy = h[0].y - h[9].y; // toward the elbow
+    if (dy <= 0) return 90; // forearm pointing up: hands reaching over, treat as sideways
+    return (Math.atan2(Math.abs(dx), dy) * 180) / Math.PI;
+  };
+  const meanSlant = (slant(a) + slant(b)) / 2;
+  let s = meanSlant < 32 ? 1 : meanSlant > 50 ? -1 : 1 - ((meanSlant - 32) / 18) * 2;
+  const sa = dist(a[0], a[9]), sb = dist(b[0], b[9]);
+  const ratio = Math.max(sa, sb) / Math.min(sa, sb);
+  if (ratio > 1.2) s -= 0.4;
+  else if (ratio < 1.06) s += 0.15;
+  return Math.max(-1, Math.min(1, s));
+}

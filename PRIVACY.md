@@ -7,6 +7,7 @@
 - Ảnh vân tay và lòng bàn tay là dữ liệu sinh trắc học. Vì vậy thẻ chia sẻ chỉ vẽ **bàn tay cách điệu** dựng lại từ các điểm khớp, không dùng ảnh thật.
 - **Link mời Cặp đôi** chỉ chứa: biệt danh bạn nhập, giới tính (nếu bạn tự chọn), và các số đo đã làm tròn. Bất kỳ ai có link đều đọc được các thông tin này, nên chỉ gửi cho người bạn muốn.
 - Không cookie, không quảng cáo. Nếu chủ trang bật GoatCounter, trang chỉ đếm lượt xem và tên sự kiện ẩn danh (không cookie, tôn trọng "Do Not Track"); không gửi ảnh, số đo, tên hay nội dung link mời.
+- Trong mini-game Trái tim hai bàn tay, app chạy thêm một mô hình nhận diện khuôn mặt nhỏ ngay trên máy, **chỉ để đếm** có một hay hai người trong khung. Không nhận dạng ai, không lưu, không gửi đi.
 - Ảnh **Trái tim hai bàn tay** là ảnh thật từ camera, chỉ nằm trên máy bạn cho tới khi bạn tự chia sẻ hoặc tải về.
 - Chế độ Cặp đôi yêu cầu xác nhận cả hai người từ 16 tuổi trở lên và đồng ý tham gia.
 

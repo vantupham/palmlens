@@ -78,7 +78,7 @@ Trình duyệt bật "Do Not Track" sẽ không bị đếm. App chỉ gửi tê
 | `card_open/<loại>`, `card_share/<loại>-<khổ>-<shared\|downloaded>` | Mở và chia sẻ thẻ | Tỷ lệ chia sẻ |
 | `video_made/<loại>` | Xuất video 6 giây | Tỷ lệ chia sẻ |
 | `invite_created`, `invite_opened`, `couple_result/<cặp nguyên tố>` | Link mời cặp đôi | Hệ số lan toả (K-factor) |
-| `heart_start`, `heart_captured` | Mini-game Trái tim hai bàn tay | |
+| `heart_start`, `heart_captured/<solo\|duo>` | Mini-game Trái tim hai bàn tay (một người tự làm hay hai người) | |
 | `barnum_rated/<1-5>` | Điểm người dùng chấm bài đọc | Tỷ lệ làm thí nghiệm Barnum |
 | `line_edit_open`, `line_edit_saved` | Người dùng sửa đường chỉ | Đo chất lượng bộ tách chỉ tay |
 

@@ -52,6 +52,15 @@ Báo cáo cho mỗi đường: độ dài (theo bề rộng khớp gốc), độ
 - **Mặt lòng hay mu bàn tay**: so nhãn tay trái/phải của MediaPipe với chiều quay của các khớp gốc ngón trong ảnh (không lật gương). Khi điểm tin cậy của nhãn < 0,8 thì bỏ qua kiểm tra.
 - **Màn hướng dẫn ánh sáng** trước khi bật camera: ánh sáng xiên làm nếp gấp đổ bóng; ánh sáng chiếu thẳng hoặc ngược sáng làm nếp gấp "phẳng".
 
+### Trái tim hai bàn tay: một người hay hai người?
+
+Tay trái/tay phải không phân biệt được, vì hai người đứng cạnh nhau cũng thường đưa một tay trái và một tay phải. App kết hợp:
+
+1. **Hướng cẳng tay**: kéo dài trục khớp gốc ngón giữa → cổ tay. Một người làm trái tim giữ hai cẳng tay khá thẳng đứng (nghiêng trung bình < 32°); hai người đưa tay từ hai phía nên cẳng tay nghiêng mạnh (> 50°). Kích thước hai bàn tay chênh > 20% là bằng chứng thêm cho hai người.
+2. **Đếm khuôn mặt** (MediaPipe Face Detector, ~230 KB, chạy trên máy, ~2 lần/giây): ≥ 2 khuôn mặt thì chắc chắn là hai người; đúng 1 khuôn mặt thì nghiêng về một người.
+
+Khi nghi là một người, app **không chặn**: hiện lời nhắc vui, chờ 4,5 giây xem người thứ hai có vào khung không, rồi vẫn chụp với chú thích "Đang chờ một nửa còn lại ♥". Trường hợp lưng chừng được coi là hai người, để không làm phiền cặp đôi đứng sát nhau.
+
 ### Giới hạn đã biết
 
 - Ảnh thiếu sáng, mờ, hoặc bàn tay nhỏ trong khung làm đường chỉ kém chính xác. App hiện cảnh báo chất lượng và "độ tin cậy".
