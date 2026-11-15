@@ -18,6 +18,12 @@ export interface HandCapture {
   /** side as reported by the detector (may differ from what the user declared) */
   detected?: HandSide;
   source: 'camera' | 'upload' | 'demo';
+  /** more frames of the same hand from a camera burst, averaged to reduce noise */
+  extras?: { image: HTMLCanvasElement; landmarks: Pt[] }[];
+  /** whether the palm (not the back of the hand) faced the camera, when it can be told */
+  facing?: 'palm' | 'back' | 'unknown';
+  /** show the photo mirrored (selfie camera), the way the user saw it while scanning */
+  mirrored?: boolean;
 }
 
 export interface LineResult {

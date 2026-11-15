@@ -31,11 +31,24 @@ export interface PalmPatch {
   lum: Float32Array;
   mask: Uint8Array;
   resp: Float32Array;
+  /** absolute crease depth: local background luminance minus luminance at the pixel */
+  dip: Float32Array;
+  /** robust spread (1.4826 × MAD) of `dip` over the palm: the skin-texture/noise floor */
+  dipNoise: number;
+  /** number of frames averaged into the patch */
+  frames: number;
   frame: PalmFrame;
   /** patch pixel → uv */
   uvAt(i: number, j: number): Pt;
   /** uv → fractional patch pixel */
   pxAt(u: number, v: number): Pt;
+}
+
+export interface PatchOptions {
+  /** patch width in px (220 for analysis, smaller for the live meter) */
+  patchW?: number;
+  /** extra frames of the same hand (e.g. a camera burst) averaged in palm space to cut noise */
+  extras?: { image: HTMLCanvasElement | ImageData; landmarks: Pt[] }[];
 }
 
 export interface LinesOutput {
@@ -102,13 +115,13 @@ function sampleLum(data: Uint8ClampedArray, iw: number, ih: number, x: number, y
 
 // ------------------------------------------------------------ patch + ridge
 
-export function buildPatch(image: HTMLCanvasElement | ImageData, lm: Pt[]): PalmPatch {
-  const img =
-    image instanceof ImageData
-      ? image
-      : image.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, image.width, image.height);
+const pixels = (image: HTMLCanvasElement | ImageData): ImageData =>
+  image instanceof ImageData ? image : image.getContext('2d', { willReadFrequently: true })!.getImageData(0, 0, image.width, image.height);
+
+export function buildPatch(image: HTMLCanvasElement | ImageData, lm: Pt[], opts: PatchOptions = {}): PalmPatch {
+  const img = pixels(image);
   const frame = palmFrame(lm);
-  const w = PATCH_W;
+  const w = opts.patchW ?? PATCH_W;
   const scale = ((U1 - U0) * frame.W) / w; // image px per patch px
   const h = Math.max(40, Math.round(((V1 - V0) * frame.L) / scale));
   const uvAt = (i: number, j: number): Pt => ({ x: U0 + ((i + 0.5) / w) * (U1 - U0), y: V1 - ((j + 0.5) / h) * (V1 - V0) });
@@ -142,8 +155,44 @@ export function buildPatch(image: HTMLCanvasElement | ImageData, lm: Pt[]): Palm
       if (inside && distToPolygonEdge({ x: q.x, y: q.y * aspect }, polyPhys) > 0.03) mask[j * w + i] = 1;
     }
 
+  // Average extra frames in palm coordinates. Each frame is sampled with its own
+  // landmarks, so small hand movements between frames cancel out.
+  let frames = 1;
+  for (const ex of opts.extras ?? []) {
+    if (ex.landmarks.length !== 21) continue;
+    const f2 = palmFrame(ex.landmarks);
+    if (Math.abs(f2.W / frame.W - 1) > 0.15 || Math.abs(f2.L / f2.W / (frame.L / frame.W) - 1) > 0.12) continue; // hand turned too much
+    const im2 = pixels(ex.image);
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        const q = uvAt(i, j);
+        const p = f2.toImg(q.x, q.y);
+        lum[j * w + i] += sampleLum(im2.data, im2.width, im2.height, p.x, p.y);
+      }
+    frames++;
+  }
+  if (frames > 1) for (let k = 0; k < lum.length; k++) lum[k] /= frames;
+
   const resp = ridgeResponse(lum, mask, w, h, scale);
-  return { w, h, lum, mask, resp, frame, uvAt, pxAt };
+  const { dip, dipNoise } = creaseDepth(lum, mask, w, h, scale);
+  return { w, h, lum, mask, resp, dip, dipNoise, frames, frame, uvAt, pxAt };
+}
+
+/** Absolute crease depth in luminance units, plus the noise floor it is judged against. */
+function creaseDepth(lum: Float32Array, mask: Uint8Array, w: number, h: number, scale: number) {
+  const base = Math.max(0.9, 0.9 / Math.max(scale / 2, 0.5));
+  const fine = blur(lum, w, h, base);
+  const coarse = blur(lum, w, h, base * 4);
+  const dip = new Float32Array(w * h);
+  const vals: number[] = [];
+  for (let k = 0; k < dip.length; k++) {
+    if (!mask[k]) continue;
+    dip[k] = coarse[k] - fine[k];
+    vals.push(dip[k]);
+  }
+  const med = percentile(vals, 0.5);
+  const mad = percentile(vals.map((v) => Math.abs(v - med)), 0.5);
+  return { dip, dipNoise: Math.max(1.4826 * mad, 0.0025) };
 }
 
 function ridgeResponse(lum: Float32Array, mask: Uint8Array, w: number, h: number, scale: number): Float32Array {
@@ -248,11 +297,24 @@ function strongSegment(r: number[], thr: number, maxGap: number): [number, numbe
   return best;
 }
 
-const THR = 0.2;
+/** Crease depth at a path point, in multiples of the palm's noise floor (best of ±1 px). */
+function snrAt(P: PalmPatch, x: number, y: number): number {
+  const i = Math.round(x), j = Math.round(y);
+  if (i < 1 || j < 1 || i >= P.w - 1 || j >= P.h - 1) return 0;
+  const k = j * P.w + i;
+  if (!P.mask[k]) return 0;
+  const d = Math.max(P.dip[k], P.dip[k - P.w], P.dip[k + P.w], P.dip[k - 1], P.dip[k + 1]);
+  return d / P.dipNoise;
+}
 
-function finish(P: PalmPatch, key: LineKey, pts: Pt[], minLen: number, minClarity: number): LineResult {
-  const r = pts.map((p) => Math.max(0, respAt(P, p.x, p.y)));
-  const seg = strongSegment(r, THR, Math.max(3, Math.round(pts.length * 0.08)));
+/** A crease counts as seen only if it is clearly deeper than the skin texture and noise. */
+export const SNR_ON = 2.2; // per-point, to trim the segment
+export const SNR_PRESENT = 3.0; // mean over the segment
+export const MIN_DIP = 0.008; // ~0.8 % luminance: below this nothing is reliably visible
+
+function finish(P: PalmPatch, key: LineKey, pts: Pt[], minLen: number, minSnr = SNR_PRESENT): LineResult {
+  const r = pts.map((p) => snrAt(P, p.x, p.y));
+  const seg = strongSegment(r, SNR_ON, Math.max(3, Math.round(pts.length * 0.08)));
   const empty: LineResult = { key, img: [], uv: [], length: 0, curvature: 0, clarity: 0, present: false };
   if (!seg) return empty;
   const part = pts.slice(seg[0], seg[1] + 1);
@@ -261,7 +323,8 @@ function finish(P: PalmPatch, key: LineKey, pts: Pt[], minLen: number, minClarit
   const aspect = P.frame.L / P.frame.W;
   const phys = uv.map((p) => ({ x: p.x, y: p.y * aspect }));
   const length = polylineLength(phys);
-  const clarity = rs.reduce((a, b) => a + b, 0) / rs.length;
+  const meanSnr = rs.reduce((a, b) => a + b, 0) / rs.length;
+  const meanDip = meanSnr * P.dipNoise;
   const smoothUV = smooth(uv, 3);
   return {
     key,
@@ -269,8 +332,9 @@ function finish(P: PalmPatch, key: LineKey, pts: Pt[], minLen: number, minClarit
     img: smoothUV.map((p) => P.frame.toImg(p.x, p.y)),
     length,
     curvature: curv(phys),
-    clarity: clamp(clarity),
-    present: length >= minLen && clarity >= minClarity,
+    // 0 at the detection threshold, 1 for a crease ~8× deeper than the noise floor
+    clarity: clamp((meanSnr - 2) / 6),
+    present: length >= minLen && meanSnr >= minSnr && meanDip >= MIN_DIP,
   };
 }
 
@@ -372,8 +436,8 @@ function measureQuality(P: PalmPatch): Quality {
 
 // --------------------------------------------------------------------- main
 
-export function detectPalmLines(image: HTMLCanvasElement | ImageData, lm: Pt[]): LinesOutput {
-  const P = buildPatch(image, lm);
+export function detectPalmLines(image: HTMLCanvasElement | ImageData, lm: Pt[], opts: PatchOptions = {}): LinesOutput {
+  const P = buildPatch(image, lm, opts);
   const uv = lm.map((p) => P.frame.toUV(p));
   const U5 = uv[5].x, V5 = uv[5].y, U9 = uv[9].x, V9 = uv[9].y, U13 = uv[13].x, V13 = uv[13].y, U17 = uv[17].x, V17 = uv[17].y;
   const uUlnar = U17 + (U17 - U13) * 0.75;
@@ -385,7 +449,7 @@ export function detectPalmLines(image: HTMLCanvasElement | ImageData, lm: Pt[]):
     return V17 - 0.02 + t * (V9 - 0.05 - (V17 - 0.02)) + (V13 - (V17 + V9) / 2) * 0.3;
   };
   const heartPts = traceHorizontal(P, uUlnar, U5 - 0.02, hc, 0.14);
-  const heart = finish(P, 'heart', heartPts, 0.35, 0.22);
+  const heart = finish(P, 'heart', heartPts, 0.35);
 
   // Head line: proximal transverse crease, from the radial edge near the index knuckle, sloping to the ulnar side.
   const hdc = (u: number) => {
@@ -393,7 +457,7 @@ export function detectPalmLines(image: HTMLCanvasElement | ImageData, lm: Pt[]):
     return V5 - 0.12 + t * (V17 - 0.3 - (V5 - 0.12));
   };
   const headPts = traceHorizontal(P, U17 + 0.05, U5 + 0.18, hdc, 0.15, nearPath(heartPts, 0.04 * pxPerW));
-  const head = finish(P, 'head', headPts, 0.3, 0.2);
+  const head = finish(P, 'head', headPts, 0.3);
 
   // Life line: thenar crease, arc around the thumb base.
   const C = P.pxAt(Math.max(uv[2].x - 0.02, 0.35), uv[2].y + 0.02);
@@ -405,17 +469,16 @@ export function detectPalmLines(image: HTMLCanvasElement | ImageData, lm: Pt[]):
   if (a0 > 1.5 * Math.PI) a0 -= 2 * Math.PI; // keep sweep through the ulnar (left) side
   if (a1 < a0) [a0, a1] = [a1, a0];
   const lifePts = traceArc(P, C, a0, a1, 0.25 * pxPerW, 0.9 * pxPerW);
-  const life = finish(P, 'life', lifePts, 0.4, 0.2);
+  const life = finish(P, 'life', lifePts, 0.4);
 
   // Fate line: vertical crease in the centre of the palm (often faint or absent).
   const fc = (v: number) => 0.05 + (v / Math.max(V9, 0.5)) * ((U9 + U13) / 2 - 0.05);
   const fatePts = traceVertical(P, 0.1, Math.min(V9, V13) - 0.2, fc, 0.16, nearPath(lifePts, 0.04 * pxPerW));
-  const fateRaw = finish(P, 'fate', fatePts, 0.35, 0.3);
-  const fate = { ...fateRaw, present: fateRaw.present && fateRaw.clarity > 0.32 };
+  const fate = finish(P, 'fate', fatePts, 0.35, SNR_PRESENT + 0.8); // stricter: often faint or absent
 
   // Single transverse crease: heart line runs fully across to the radial side while the head line is weak.
   const heartReachesRadial = heart.present && heart.uv.some((p) => p.x > U9 + 0.25);
-  const singleCrease = heartReachesRadial && (!head.present || head.clarity < 0.25) && heart.length > 1.0;
+  const singleCrease = heartReachesRadial && (!head.present || head.clarity < 0.1) && heart.length > 1.0;
 
   return { lines: { heart, head, life, fate }, quality: measureQuality(P), singleCrease, patch: P };
 }
@@ -431,4 +494,13 @@ export function responseImage(P: PalmPatch): ImageData {
     out.data[k * 4 + 3] = P.mask[k] ? 255 : 60;
   }
   return out;
+}
+
+/** Fast check for the live camera meter: how clearly the main creases show right now. */
+export function liveCreaseScore(image: HTMLCanvasElement | ImageData, lm: Pt[]) {
+  const o = detectPalmLines(image, lm, { patchW: 150 });
+  const main = [o.lines.heart, o.lines.head, o.lines.life];
+  const found = main.filter((l) => l.present).length;
+  const score = main.reduce((s, l) => s + (l.present ? 0.25 + 0.75 * l.clarity : 0), 0) / 3;
+  return { score, found, quality: o.quality };
 }

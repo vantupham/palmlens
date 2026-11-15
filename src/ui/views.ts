@@ -7,7 +7,7 @@ import { drawStylizedHand, linesFromAnalysis, linesFromProfile, normFromProfile,
 import { bothCard, coupleCard, singleCard } from '../share/card';
 import { coupleHash, coupleUrl, inviteUrl, siteUrl } from '../share/codec';
 import { captureHand } from './capture';
-import { videoButton, barnumCard, confidenceMeter, handViewer, lineCards, measuresCard, openShareModal, qualityWarning, shapeCard, sourcesList, srcLinks, traitsCard } from './components';
+import { captureWarnings, videoButton, barnumCard, confidenceMeter, handViewer, lineCards, measuresCard, openShareModal, qualityWarning, shapeCard, sourcesList, srcLinks, traitsCard } from './components';
 import { h, mount, toast } from './dom';
 import { coupleScene, singleScene } from '../share/video';
 import { track } from '../analytics';
@@ -57,11 +57,11 @@ export function showSingle(cap: HandCapture, res: AnalysisResult, animate = true
   const el = ELEMENTS[a.element];
   mount(
     h('section', { class: 'result fade-in' },
-      h('div', null, handViewer(cap, res, { onLineClick: flash, animate, onEdited: () => { track('line_edit_saved'); showSingle(cap, res, false); } }), h('div', { class: 'stack', style: 'margin-top:12px' }, qualityWarning(a), sideToggle)),
+      h('div', null, handViewer(cap, res, { onLineClick: flash, animate, onEdited: () => { track('line_edit_saved'); showSingle(cap, res, false); } }), h('div', { class: 'stack', style: 'margin-top:12px' }, ...captureWarnings(cap, a, () => startSingle()), qualityWarning(a), sideToggle)),
       h('div', { class: 'stack' },
         h('div', { class: 'headline' },
           h('div', { class: 'el' }, `${el.icon} ${tr(el.name).toUpperCase()}`),
-          h('h1', { class: 'mys' }, tr(archetypeName(a))),
+          h('h1', { class: 'mys' }, (['heart', 'head', 'life'] as LineKey[]).some((k) => a.lines[k].present) ? tr(archetypeName(a)) : tr(el.name)),
           h('h1', { class: 'sci' }, getLang() === 'vi' ? 'Hồ sơ đo đạc bàn tay' : 'Hand measurement profile'),
           h('p', { class: 'mys tiny' }, t('mysticNote')),
         ),
@@ -158,8 +158,8 @@ export function showBoth(lc: HandCapture, L: AnalysisResult, rc: HandCapture, R:
       h('div', { class: 'headline' }, h('div', { class: 'el' }, t('modeBoth').toUpperCase()), h('h1', null, t('compareTitle'))),
       sameWarn,
       h('div', { class: 'duo' },
-        h('div', null, h('h3', { class: 'center' }, t('leftHand')), handViewer(lc, L, { animate, onEdited: again })),
-        h('div', null, h('h3', { class: 'center' }, t('rightHand')), handViewer(rc, R, { animate, onEdited: again })),
+        h('div', null, h('h3', { class: 'center' }, t('leftHand')), handViewer(lc, L, { animate, onEdited: again }), ...captureWarnings(lc, L.analysis)),
+        h('div', null, h('h3', { class: 'center' }, t('rightHand')), handViewer(rc, R, { animate, onEdited: again }), ...captureWarnings(rc, R.analysis)),
       ),
       h('div', { class: 'duo' },
         h('div', { class: 'card stack center' },

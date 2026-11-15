@@ -15,6 +15,9 @@ PalmLens AI là web app mã nguồn mở, chạy **hoàn toàn trên trình duy�
 ## Tính năng
 
 - **Một bàn tay**: webcam có khung hướng dẫn, tự chụp khi tay đứng yên; hoặc tải ảnh lên; hoặc thử với tay mẫu.
+- **Trợ giúp khi quét**: màn hướng dẫn ánh sáng, đồng hồ "Độ rõ chỉ tay" chạy trực tiếp, cảnh báo khi đưa mu bàn tay, ghép ~8 khung hình để giảm nhiễu, camera sau + đèn flash trên điện thoại.
+- **Trung thực về độ chính xác**: chỉ báo đường chỉ khi nếp gấp sâu rõ hơn hẳn nhiễu ảnh; nếu không, app nói "không thấy rõ" và gợi ý chụp lại.
+- **Sửa đường chỉ**: kéo các điểm để chỉnh khi AI nhận sai, hoặc đánh dấu tay không có đường đó.
 - **AI nhìn thấy gì**: xem bản đồ nếp gấp mà thuật toán thực sự "thấy" trên lòng bàn tay bạn.
 - **Hai bàn tay của tôi**: so tay trái với tay phải, có "Gương soi" chồng hai tay lên nhau và độ đối xứng.
 - **Chế độ Cặp đôi**: hai người yêu nhau ghép tay trên cùng một máy hoặc qua link mời. Kết quả là 1 trong 10 kiểu cặp đôi, 3 điểm giống nhau và 3 điểm bổ trợ. Không bao giờ chấm "không hợp".

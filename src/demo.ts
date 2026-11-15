@@ -20,7 +20,19 @@ function rng(seed: number) {
   };
 }
 
-export function makeDemoHand(variant = 0): HandCapture {
+export interface DemoOptions {
+  /** crease darkness multiplier (1 = clear creases, 0 = none) */
+  crease?: number;
+  /** pixel noise amplitude (0–255 scale) */
+  noise?: number;
+  /** overall exposure multiplier */
+  light?: number;
+  /** blur in px applied to the whole photo */
+  blur?: number;
+}
+
+export function makeDemoHand(variant = 0, opt: DemoOptions = {}): HandCapture {
+  const ck = opt.crease ?? 1;
   const W = 900, H = 1200;
   const c = document.createElement('canvas');
   c.width = W;
@@ -67,7 +79,7 @@ export function makeDemoHand(variant = 0): HandCapture {
   const crease = (pts: number[], width: number, alpha: number) => {
     g.save();
     g.filter = 'blur(1.4px)';
-    g.strokeStyle = `rgba(110, 60, 45, ${alpha})`;
+    g.strokeStyle = `rgba(110, 60, 45, ${alpha * ck})`;
     g.lineWidth = width;
     g.beginPath();
     g.moveTo(m(pts[0]), pts[1]);
@@ -85,7 +97,7 @@ export function makeDemoHand(variant = 0): HandCapture {
     const p = lm[k];
     g.save();
     g.filter = 'blur(1px)';
-    g.strokeStyle = 'rgba(120, 70, 55, 0.35)';
+    g.strokeStyle = `rgba(120, 70, 55, ${0.35 * Math.min(1, ck + 0.3)})`;
     g.lineWidth = 3;
     g.beginPath();
     g.moveTo(p.x - 30, p.y + 4);
@@ -95,14 +107,23 @@ export function makeDemoHand(variant = 0): HandCapture {
   }
 
   // skin texture
+  if (opt.blur) {
+    const tmp = document.createElement('canvas');
+    tmp.width = W; tmp.height = H;
+    tmp.getContext('2d')!.drawImage(c, 0, 0);
+    g.filter = `blur(${opt.blur}px)`;
+    g.drawImage(tmp, 0, 0);
+    g.filter = 'none';
+  }
   const img = g.getImageData(0, 0, W, H);
   const r = rng(7 + variant);
+  const amp = opt.noise ?? 14;
+  const light = opt.light ?? 1;
   for (let k = 0; k < img.data.length; k += 4) {
-    if (img.data[k] < 120) continue;
-    const n = (r() - 0.5) * 14;
-    img.data[k] += n;
-    img.data[k + 1] += n;
-    img.data[k + 2] += n;
+    const n = img.data[k] < 120 ? (r() - 0.5) * amp * 0.5 : (r() - 0.5) * amp;
+    img.data[k] = img.data[k] * light + n;
+    img.data[k + 1] = img.data[k + 1] * light + n;
+    img.data[k + 2] = img.data[k + 2] * light + n;
   }
   g.putImageData(img, 0, 0);
 

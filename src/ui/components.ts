@@ -35,7 +35,7 @@ export function handViewer(cap: HandCapture, res: AnalysisResult, opts: ViewerOp
   const g = canvas.getContext('2d')!;
   const toC = (p: Pt): Pt => ({ x: (p.x - x0) * k, y: (p.y - y0) * k });
   const toImg = (p: Pt): Pt => ({ x: p.x / k + x0, y: p.y / k + y0 });
-  const mirrored = cap.source === 'camera'; // show selfie captures the way the user saw them
+  const mirrored = cap.mirrored ?? cap.source === 'camera'; // show selfie captures the way the user saw them
   const layers = { skeleton: true, lines: true, ai: false };
   let aiImage: ImageData | null = null;
 
@@ -476,4 +476,20 @@ export function videoButton(kind: string, scene: () => FrameFn, filename: string
     btn.removeAttribute('disabled');
   });
   return h('div', { class: 'stack' }, btn, bar);
+}
+
+// ------------------------------------------------------- capture warnings
+
+/** Honest feedback when the photo did not show the lines, or showed the back of the hand. */
+export function captureWarnings(cap: HandCapture, a: Analysis, onRetake?: () => void) {
+  const out: HTMLElement[] = [];
+  if (cap.facing === 'back')
+    out.push(h('div', { class: 'card warn stack' }, h('b', null, '🔄 ', t('backTitle')), h('div', { class: 'small' }, t('backBody')),
+      onRetake ? h('div', null, h('button', { class: 'btn', onclick: onRetake }, t('retake'))) : null));
+  const seen = (['heart', 'head', 'life'] as LineKey[]).filter((k) => a.lines[k].present).length;
+  if (seen < 2 && cap.source !== 'demo')
+    out.push(h('div', { class: 'card warn stack' }, h('b', null, '💡 ', t('lowTitle')), h('div', { class: 'small' }, t('lowBody')),
+      h('ul', { class: 'small', style: 'margin:0;padding-left:18px' }, [t('lightTip1'), t('lightTip3'), t('lightTip4')].map((x) => h('li', null, x))),
+      onRetake ? h('div', null, h('button', { class: 'btn primary', onclick: onRetake }, '📷 ', t('retake'))) : null));
+  return out;
 }

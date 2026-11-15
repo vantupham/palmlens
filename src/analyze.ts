@@ -15,7 +15,7 @@ export interface AnalysisResult {
 
 export function analyzeHand(cap: HandCapture): AnalysisResult {
   const metrics = computeMetrics(cap.landmarks, cap.world);
-  const { lines, quality, singleCrease, patch } = detectPalmLines(cap.image, cap.landmarks);
+  const { lines, quality, singleCrease, patch } = detectPalmLines(cap.image, cap.landmarks, { extras: cap.extras });
   const shape = classifyElement(metrics);
   const f = palmFrame(cap.landmarks);
   const norm = cap.landmarks.map((p) => f.toUV(p));
@@ -33,7 +33,7 @@ export function analyzeHand(cap: HandCapture): AnalysisResult {
       shapeScore: { palm: shape.palm, fingers: shape.fingers },
       archetype: dominantLine(lines),
       singleCrease,
-      confidence: clamp(0.35 * qConf + 0.65 * Math.min(1, lineConf * 1.6)),
+      confidence: clamp(0.3 * qConf + 0.7 * Math.min(1, lineConf * 1.4)),
       norm,
     },
     patch,
