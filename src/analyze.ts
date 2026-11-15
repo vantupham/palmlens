@@ -1,8 +1,12 @@
 import type { Analysis, HandCapture, Profile } from './types';
 import { computeMetrics, classifyElement, dominantLine } from './metrics/metrics';
+import type { LineKey, Pt } from './types';
+import { curvature, polylineLength } from './vision/geometry';
+import { smoothCurve } from './render/draw';
 import { detectPalmLines, type PalmPatch } from './vision/palmlines';
 import { palmFrame, clamp } from './vision/geometry';
 import { resample } from './render/draw';
+export { resample };
 
 export interface AnalysisResult {
   analysis: Analysis;
@@ -60,4 +64,40 @@ export function toProfile(a: Analysis, name: string, sex?: 'm' | 'f'): Profile {
     ln: (['heart', 'head', 'life'] as const).map((k) => (a.lines[k].present ? resample(a.lines[k].uv, 8).flatMap((p) => [r2(p.x), r2(p.y)]) : [])),
     ...(sex ? { g: sex } : {}),
   };
+}
+
+/** Starting shapes (palm coordinates) for a line the detector missed. */
+export const LINE_TEMPLATES: Record<LineKey, Pt[]> = {
+  heart: [{ x: -0.62, y: 0.7 }, { x: -0.3, y: 0.76 }, { x: 0, y: 0.82 }, { x: 0.22, y: 0.92 }],
+  head: [{ x: 0.5, y: 0.74 }, { x: 0.15, y: 0.64 }, { x: -0.2, y: 0.54 }, { x: -0.5, y: 0.44 }],
+  life: [{ x: 0.48, y: 0.72 }, { x: 0.22, y: 0.56 }, { x: 0.14, y: 0.32 }, { x: 0.2, y: 0.06 }],
+  fate: [{ x: 0.05, y: 0.08 }, { x: 0.04, y: 0.3 }, { x: 0.03, y: 0.52 }, { x: 0.02, y: 0.7 }],
+};
+
+/**
+ * Apply a hand correction. `ctrl` are control points in image pixels; null means
+ * "my hand does not have this line". Measurements and the archetype are recomputed;
+ * clarity is still measured from the photo so the science layer stays honest.
+ */
+export function applyLineEdit(res: AnalysisResult, key: LineKey, ctrl: Pt[] | null) {
+  const a = res.analysis;
+  const P = res.patch;
+  const f = P.frame;
+  if (!ctrl || ctrl.length < 2) {
+    a.lines[key] = { key, img: [], uv: [], length: 0, curvature: 0, clarity: 0, present: false, edited: true };
+  } else {
+    const img = smoothCurve(ctrl, 8);
+    const uv = img.map((p) => f.toUV(p));
+    const aspect = f.L / f.W;
+    const phys = uv.map((p) => ({ x: p.x, y: p.y * aspect }));
+    let s = 0;
+    for (const q of uv) {
+      const px = P.pxAt(q.x, q.y);
+      const i = Math.round(px.x), j = Math.round(px.y);
+      if (i >= 0 && j >= 0 && i < P.w && j < P.h) s += P.resp[j * P.w + i];
+    }
+    a.lines[key] = { key, img, uv, length: polylineLength(phys), curvature: curvature(phys), clarity: clamp(s / uv.length), present: true, edited: true };
+  }
+  a.archetype = dominantLine(a.lines);
+  if (key === 'head' && a.lines.head.present) a.singleCrease = false;
 }

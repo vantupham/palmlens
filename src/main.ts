@@ -6,6 +6,8 @@ import { palmFrame } from './vision/geometry';
 import { drawStylizedHand, starfield } from './render/draw';
 import { h, mount } from './ui/dom';
 import { coupleSetup, nav, showCouple, showInvite, startBoth, startSingle } from './ui/views';
+import { initAnalytics, pageview } from './analytics';
+import { heartGame } from './ui/heart';
 
 const REPO = 'https://github.com/vantupham/palmlens';
 
@@ -122,6 +124,7 @@ nav.home = () => {
 function route() {
   const hash = location.hash.replace(/^#/, '');
   const [path, qs] = hash.split('?');
+  pageview(path.replace(/^\//, '') || 'home');
   const q = new URLSearchParams(qs ?? '');
   if (path === '/invite') {
     const p = decodeProfile(q.get('p') ?? '');
@@ -135,9 +138,11 @@ function route() {
   if (path === '/single') return startSingle();
   if (path === '/both') return startBoth();
   if (path === '/pair') return coupleSetup();
+  if (path === '/heart') return heartGame();
   home();
 }
 
 window.addEventListener('hashchange', route);
+initAnalytics();
 renderChrome();
 route();

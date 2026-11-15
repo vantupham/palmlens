@@ -26,6 +26,9 @@ jobs:
       - run: npm ci
       - run: npm run fetch-model
       - run: npm run build
+        env:
+          # optional: GoatCounter site code, set in Settings → Secrets and variables → Actions → Variables
+          VITE_GOATCOUNTER: ${{ vars.GOATCOUNTER_CODE }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

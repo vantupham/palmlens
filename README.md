@@ -59,6 +59,26 @@ Bỏ qua `fetch-model` thì app tự lấy mô hình từ máy chủ của Googl
 
 Nếu đổi tên repo, sửa `base` trong `vite.config.ts`.
 
+## Đo lượng truy cập (tuỳ chọn)
+
+PalmLens dùng [GoatCounter](https://www.goatcounter.com): miễn phí cho dự án phi thương mại, không cookie, không thu thập dữ liệu cá nhân. Mặc định **tắt**.
+
+1. Đăng ký tại goatcounter.com, chọn mã trang, ví dụ `palmlens` (bảng số liệu sẽ ở `palmlens.goatcounter.com`).
+2. Trong repo: **Settings → Secrets and variables → Actions → Variables → New variable**, tên `GOATCOUNTER_CODE`, giá trị `palmlens`.
+3. Chạy lại workflow deploy.
+
+Trình duyệt bật "Do Not Track" sẽ không bị đếm. App chỉ gửi tên màn hình và tên sự kiện, không bao giờ gửi ảnh, số đo, tên hay nội dung link mời.
+
+| Sự kiện | Ý nghĩa | Dùng cho chỉ số |
+| --- | --- | --- |
+| `analysis_done/<camera\|upload\|demo>` | Phân tích xong một bàn tay | Tỷ lệ hoàn thành |
+| `card_open/<loại>`, `card_share/<loại>-<khổ>-<shared\|downloaded>` | Mở và chia sẻ thẻ | Tỷ lệ chia sẻ |
+| `video_made/<loại>` | Xuất video 6 giây | Tỷ lệ chia sẻ |
+| `invite_created`, `invite_opened`, `couple_result/<cặp nguyên tố>` | Link mời cặp đôi | Hệ số lan toả (K-factor) |
+| `heart_start`, `heart_captured` | Mini-game Trái tim hai bàn tay | |
+| `barnum_rated/<1-5>` | Điểm người dùng chấm bài đọc | Tỷ lệ làm thí nghiệm Barnum |
+| `line_edit_open`, `line_edit_saved` | Người dùng sửa đường chỉ | Đo chất lượng bộ tách chỉ tay |
+
 ## Cấu trúc
 
 ```

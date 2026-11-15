@@ -37,7 +37,7 @@ async function fileToCanvas(file: File): Promise<HTMLCanvasElement> {
   const c = document.createElement('canvas');
   c.width = Math.round(bmp.width * k);
   c.height = Math.round(bmp.height * k);
-  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
+  c.getContext('2d', { willReadFrequently: true })!.drawImage(bmp, 0, 0, c.width, c.height);
   bmp.close();
   return c;
 }
@@ -96,7 +96,7 @@ export function captureHand(opts: CaptureOptions): Promise<HandCapture | null> {
       const c = document.createElement('canvas');
       c.width = video.videoWidth;
       c.height = video.videoHeight;
-      c.getContext('2d')!.drawImage(video, 0, 0);
+      c.getContext('2d', { willReadFrequently: true })!.drawImage(video, 0, 0);
       const hd = lastHand;
       finish({ image: c, landmarks: hd.landmarks, world: hd.world.length === 21 ? hd.world : null, side: hd.side, detected: hd.side, source: 'camera' });
     }

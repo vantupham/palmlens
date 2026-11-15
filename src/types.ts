@@ -33,6 +33,8 @@ export interface LineResult {
   /** 0..1 mean ridge strength along the segment */
   clarity: number;
   present: boolean;
+  /** set when the user corrected this line by hand */
+  edited?: boolean;
 }
 
 export interface Quality {

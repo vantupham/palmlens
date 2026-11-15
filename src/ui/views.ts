@@ -7,8 +7,11 @@ import { drawStylizedHand, linesFromAnalysis, linesFromProfile, normFromProfile,
 import { bothCard, coupleCard, singleCard } from '../share/card';
 import { coupleHash, coupleUrl, inviteUrl, siteUrl } from '../share/codec';
 import { captureHand } from './capture';
-import { barnumCard, confidenceMeter, handViewer, lineCards, measuresCard, openShareModal, qualityWarning, shapeCard, sourcesList, srcLinks, traitsCard } from './components';
+import { videoButton, barnumCard, confidenceMeter, handViewer, lineCards, measuresCard, openShareModal, qualityWarning, shapeCard, sourcesList, srcLinks, traitsCard } from './components';
 import { h, mount, toast } from './dom';
+import { coupleScene, singleScene } from '../share/video';
+import { track } from '../analytics';
+import { heartGame } from './heart';
 import type { Pt } from '../types';
 
 export const nav = {
@@ -23,7 +26,9 @@ function analyzing(): Promise<void> {
 
 async function runAnalysis(cap: HandCapture): Promise<AnalysisResult> {
   await analyzing();
-  return analyzeHand(cap);
+  const res = analyzeHand(cap);
+  track('analysis_done', cap.source);
+  return res;
 }
 
 // ================================================================ single
@@ -34,7 +39,7 @@ export async function startSingle() {
   showSingle(cap, await runAnalysis(cap));
 }
 
-export function showSingle(cap: HandCapture, res: AnalysisResult) {
+export function showSingle(cap: HandCapture, res: AnalysisResult, animate = true) {
   const a = res.analysis;
   nav.showLayerSwitch(true);
   const flash = (k: LineKey) => {
@@ -47,12 +52,12 @@ export function showSingle(cap: HandCapture, res: AnalysisResult) {
   const sideToggle = h('div', { class: 'row small' }, h('span', { class: 'muted' }, t('whichHand')),
     ...(['left', 'right'] as HandSide[]).map((s) => h('button', {
       class: 'btn ghost', style: 'padding:6px 12px', 'aria-pressed': String(a.side === s),
-      onclick: () => { cap.side = s; a.side = s; showSingle(cap, res); },
+      onclick: () => { cap.side = s; a.side = s; showSingle(cap, res, false); },
     }, (a.side === s ? '● ' : '○ ') + (s === 'left' ? t('leftHand') : t('rightHand')))));
   const el = ELEMENTS[a.element];
   mount(
     h('section', { class: 'result fade-in' },
-      h('div', null, handViewer(cap, a, res.patch, flash), h('div', { class: 'stack', style: 'margin-top:12px' }, qualityWarning(a), sideToggle)),
+      h('div', null, handViewer(cap, res, { onLineClick: flash, animate, onEdited: () => { track('line_edit_saved'); showSingle(cap, res, false); } }), h('div', { class: 'stack', style: 'margin-top:12px' }, qualityWarning(a), sideToggle)),
       h('div', { class: 'stack' },
         h('div', { class: 'headline' },
           h('div', { class: 'el' }, `${el.icon} ${tr(el.name).toUpperCase()}`),
@@ -69,7 +74,7 @@ export function showSingle(cap: HandCapture, res: AnalysisResult) {
         traitsCard(a),
         barnumCard(a),
         actions([
-          h('button', { class: 'btn primary', onclick: () => openShareModal((f) => singleCard(a, f), 'palmlens.png', tr(archetypeName(a)), siteUrl()) }, '✦ ', t('makeCard')),
+          h('button', { class: 'btn primary', onclick: () => openShareModal((f) => singleCard(a, f), 'palmlens.png', tr(archetypeName(a)), siteUrl(), 'single', videoButton('single', () => singleScene(a), 'palmlens', tr(archetypeName(a)), siteUrl())) }, '✦ ', t('makeCard')),
           h('button', { class: 'btn', onclick: () => continueBoth(cap, res) }, '🤚 ', t('scanOther')),
           h('button', { class: 'btn', onclick: () => coupleSetup({ cap, res }) }, '💞 ', t('startCouple')),
           h('button', { class: 'btn ghost', onclick: () => nav.home() }, t('again')),
@@ -127,7 +132,8 @@ function mirrorCanvas(L: Analysis, R: Analysis) {
   return c;
 }
 
-export function showBoth(lc: HandCapture, L: AnalysisResult, rc: HandCapture, R: AnalysisResult) {
+export function showBoth(lc: HandCapture, L: AnalysisResult, rc: HandCapture, R: AnalysisResult, animate = true) {
+  const again = () => showBoth(lc, L, rc, R, false);
   nav.showLayerSwitch(true);
   const cmp = compareHands(L.analysis, R.analysis);
   let dominant: HandSide = 'right';
@@ -152,8 +158,8 @@ export function showBoth(lc: HandCapture, L: AnalysisResult, rc: HandCapture, R:
       h('div', { class: 'headline' }, h('div', { class: 'el' }, t('modeBoth').toUpperCase()), h('h1', null, t('compareTitle'))),
       sameWarn,
       h('div', { class: 'duo' },
-        h('div', null, h('h3', { class: 'center' }, t('leftHand')), handViewer(lc, L.analysis, L.patch)),
-        h('div', null, h('h3', { class: 'center' }, t('rightHand')), handViewer(rc, R.analysis, R.patch)),
+        h('div', null, h('h3', { class: 'center' }, t('leftHand')), handViewer(lc, L, { animate, onEdited: again })),
+        h('div', null, h('h3', { class: 'center' }, t('rightHand')), handViewer(rc, R, { animate, onEdited: again })),
       ),
       h('div', { class: 'duo' },
         h('div', { class: 'card stack center' },
@@ -181,7 +187,7 @@ export function showBoth(lc: HandCapture, L: AnalysisResult, rc: HandCapture, R:
         h('div', { class: 'card' }, h('div', { class: 'tag' }, t('rightSays')), h('h3', { style: 'margin-top:8px' }, `${ELEMENTS[R.analysis.element].icon} ${tr(archetypeName(R.analysis))}`), h('p', { class: 'mys' }, tr(ELEMENTS[R.analysis.element].tradition)), h('p', { class: 'sci small' }, `2D:4D ${R.analysis.metrics.digitRatio.toFixed(3)}`)),
       ),
       actions([
-        h('button', { class: 'btn primary', onclick: () => openShareModal((f) => bothCard(L.analysis, R.analysis, cmp.symmetry, f), 'palmlens-2-hands.png', `${t('symmetry')} ${cmp.symmetry}%`, siteUrl()) }, '✦ ', t('makeCard')),
+        h('button', { class: 'btn primary', onclick: () => openShareModal((f) => bothCard(L.analysis, R.analysis, cmp.symmetry, f), 'palmlens-2-hands.png', `${t('symmetry')} ${cmp.symmetry}%`, siteUrl(), 'both') }, '✦ ', t('makeCard')),
         h('button', { class: 'btn', onclick: () => coupleSetup({ cap: dominant === 'right' ? rc : lc, res: dominant === 'right' ? R : L }) }, '💞 ', t('startCouple')),
         h('button', { class: 'btn ghost', onclick: () => nav.home() }, t('again')),
       ]),
@@ -222,6 +228,7 @@ export function coupleSetup(from?: { cap: HandCapture; res: AnalysisResult }) {
         h('button', { class: 'mode', onclick: () => go(true) }, h('span', { class: 'icon' }, '🔗'), h('b', null, t('remote')), h('span', { class: 'small muted' }, t('remoteDesc'))),
       ),
       h('p', { class: 'tiny center' }, getLang() === 'vi' ? 'Mỗi người quét bàn tay thuận của mình.' : 'Each person scans their own dominant hand.'),
+      h('div', { class: 'center' }, h('button', { class: 'btn ghost', onclick: () => heartGame([A.name, B.name]) }, '🫶 ', getLang() === 'vi' ? 'Hoặc chơi ngay: Trái tim hai bàn tay' : 'Or jump in: two-hand heart challenge')),
     ),
   );
 }
@@ -246,6 +253,7 @@ async function remoteInvite(A: Person, from?: { cap: HandCapture; res: AnalysisR
   const pa = await scanPerson({ ...A, name: A.name || 'A' }, 0, from);
   if (!pa) return nav.home();
   const url = inviteUrl(pa);
+  track('invite_created');
   const input = h('input', { readonly: true, value: url }) as HTMLInputElement;
   const copy = async () => {
     try { await navigator.clipboard.writeText(url); toast(t('copied')); } catch { input.select(); }
@@ -263,6 +271,7 @@ async function remoteInvite(A: Person, from?: { cap: HandCapture; res: AnalysisR
 }
 
 export function showInvite(pa: Profile) {
+  track('invite_opened');
   nav.showLayerSwitch(false);
   const B: Person = { name: '' };
   const agree = h('input', { type: 'checkbox' }) as HTMLInputElement;
@@ -328,6 +337,7 @@ function interlaceCanvas(a: Profile, b: Profile) {
 }
 
 export function showCouple(a: Profile, b: Profile) {
+  track('couple_result', `${a.e}+${b.e}`);
   nav.showLayerSwitch(true);
   const r = readCouple(a, b);
   const vi = getLang() === 'vi';
@@ -367,7 +377,8 @@ export function showCouple(a: Profile, b: Profile) {
           )),
       ),
       actions([
-        h('button', { class: 'btn primary', onclick: () => openShareModal((f) => coupleCard(a, b, r, f), 'palmlens-couple.png', `${a.n} ♥ ${b.n}: ${tr(r.type.name)}`, siteUrl()) }, '✦ ', t('makeCard')),
+        h('button', { class: 'btn primary', onclick: () => openShareModal((f) => coupleCard(a, b, r, f), 'palmlens-couple.png', `${a.n} ♥ ${b.n}: ${tr(r.type.name)}`, siteUrl(), 'couple', videoButton('couple', () => coupleScene(a, b, r), 'palmlens-couple', `${a.n} ♥ ${b.n}: ${tr(r.type.name)}`, siteUrl())) }, '✦ ', t('makeCard')),
+        h('button', { class: 'btn', onclick: () => heartGame([a.n, b.n]) }, '🫶 ', getLang() === 'vi' ? 'Trái tim hai bàn tay' : 'Two-hand heart'),
         h('button', { class: 'btn', onclick: async () => { const url = coupleUrl(a, b); try { await navigator.clipboard.writeText(url); toast(t('copied')); } catch { prompt('', url); } } }, '🔗 ', t('sendBack')),
         h('button', { class: 'btn ghost', onclick: () => nav.home() }, t('again')),
       ]),

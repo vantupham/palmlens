@@ -30,6 +30,7 @@ body[data-layer='science'] {
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   font-family: var(--sans);
@@ -167,7 +168,7 @@ body[data-layer='mystic'] .sci { display: none !important; }
 
 /* --------------------------------------------------------------- result */
 .result { display: grid; gap: 20px; }
-@media (min-width: 960px) { .result { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); align-items: start; } .viewer-wrap { position: sticky; top: 76px; } }
+@media (min-width: 960px) { .result { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); align-items: start; } }
 .viewer { position: relative; border-radius: 22px; overflow: hidden; background: #000; border: 1px solid var(--card-b); }
 .viewer canvas { display: block; width: 100%; height: auto; cursor: crosshair; }
 .viewer .badge { position: absolute; top: 12px; left: 12px; }
@@ -243,3 +244,8 @@ body[data-layer='science'] .layers button[aria-pressed='true'] { color: #fff; }
 .fade-in { animation: fadeIn 0.5s both; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { *, *::before { animation: none !important; transition: none !important; } }
+
+/* line editor */
+.viewer canvas.editing { cursor: grab; touch-action: none; }
+.linechip { border-left: 4px solid var(--c) !important; }
+.editbar { margin-top: 10px; padding: 12px; border-radius: 14px; border: 1px dashed var(--accent); }

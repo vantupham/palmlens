@@ -25,7 +25,7 @@ export function makeDemoHand(variant = 0): HandCapture {
   const c = document.createElement('canvas');
   c.width = W;
   c.height = H;
-  const g = c.getContext('2d')!;
+  const g = c.getContext('2d', { willReadFrequently: true })!;
   const bg = g.createLinearGradient(0, 0, 0, H);
   bg.addColorStop(0, '#2b2f3a');
   bg.addColorStop(1, '#14161c');

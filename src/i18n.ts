@@ -158,6 +158,15 @@ const S = {
   sampleBadge: { vi: 'TAY MẪU', en: 'SAMPLE HAND' },
   palmShort: { vi: 'Dài / rộng', en: 'Length / width' },
   linesFound: { vi: 'Đường chỉ', en: 'Lines found' },
+  editLines: { vi: 'Sửa đường chỉ', en: 'Fix lines' },
+  editHint: { vi: 'Chọn một đường, rồi kéo các chấm tròn cho khớp với nếp gấp trên tay bạn.', en: 'Pick a line, then drag the dots onto the crease on your palm.' },
+  editDone: { vi: 'Xong', en: 'Done' },
+  editRemove: { vi: 'Tay tôi không có đường này', en: 'My hand has no such line' },
+  editReset: { vi: 'Về kết quả của AI', en: 'Back to the AI result' },
+  edited: { vi: 'bạn đã chỉnh', en: 'edited by you' },
+  video: { vi: 'Video 6 giây', en: '6-second video' },
+  recording: { vi: 'Đang dựng video…', en: 'Making your video…' },
+  videoUnsupported: { vi: 'Trình duyệt này chưa hỗ trợ xuất video. Hãy thử Chrome hoặc Safari mới.', en: 'This browser cannot export video. Try a recent Chrome or Safari.' },
   whichHand: { vi: 'Đây là tay nào?', en: 'Which hand is this?' },
 };
 

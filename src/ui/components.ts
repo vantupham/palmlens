@@ -2,15 +2,28 @@ import { getLang, t, tr, type T } from '../i18n';
 import type { Analysis, HandCapture, LineKey, Pt } from '../types';
 import { ELEMENTS, LINE_INFO, SOURCES, TRAITS, DIGIT_RATIO_SCIENCE } from '../interpret/knowledge';
 import { readLines, portrait } from '../interpret/reading';
-import { LINE_COLORS, drawSkeleton, glowStroke } from '../render/draw';
-import { type PalmPatch } from '../vision/palmlines';
+import { LINE_COLORS, drawSkeleton, glowStroke, resample, smoothCurve } from '../render/draw';
+import { applyLineEdit, LINE_TEMPLATES, type AnalysisResult } from '../analyze';
+import { track } from '../analytics';
 import { distToSegment } from '../vision/geometry';
 import { h, svg, toast } from './dom';
-import { shareCanvas, type CardFormat } from '../share/card';
+import { shareCanvas, downloadBlob, type CardFormat } from '../share/card';
+import { pickMime, recordVideo, type FrameFn } from '../share/video';
 
 // ------------------------------------------------------------ hand viewer
 
-export function handViewer(cap: HandCapture, a: Analysis, patch: PalmPatch, onLineClick?: (k: LineKey) => void) {
+export interface ViewerOptions {
+  onLineClick?: (k: LineKey) => void;
+  /** enables the "fix lines" editor; called after the user finishes editing */
+  onEdited?: () => void;
+  animate?: boolean;
+}
+
+const KEYS: LineKey[] = ['heart', 'head', 'life', 'fate'];
+
+export function handViewer(cap: HandCapture, res: AnalysisResult, opts: ViewerOptions = {}) {
+  const a = res.analysis;
+  const patch = res.patch;
   const lm = cap.landmarks;
   const xs = lm.map((p) => p.x), ys = lm.map((p) => p.y);
   const pad = 0.16 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
@@ -21,9 +34,22 @@ export function handViewer(cap: HandCapture, a: Analysis, patch: PalmPatch, onLi
   const canvas = h('canvas', { width: Math.round(cw * k), height: Math.round(ch * k), role: 'img', 'aria-label': t('lines') }) as HTMLCanvasElement;
   const g = canvas.getContext('2d')!;
   const toC = (p: Pt): Pt => ({ x: (p.x - x0) * k, y: (p.y - y0) * k });
+  const toImg = (p: Pt): Pt => ({ x: p.x / k + x0, y: p.y / k + y0 });
   const mirrored = cap.source === 'camera'; // show selfie captures the way the user saw them
   const layers = { skeleton: true, lines: true, ai: false };
   let aiImage: ImageData | null = null;
+
+  // editing state: control points in image pixels, per line (undefined = untouched)
+  let editing = false;
+  let sel: LineKey = 'heart';
+  const ctrl: Partial<Record<LineKey, Pt[] | null>> = {};
+  let drag = -1;
+  const ctrlOf = (key: LineKey): Pt[] | null => {
+    if (ctrl[key] !== undefined) return ctrl[key]!;
+    const l = a.lines[key];
+    if (l.present && l.img.length > 2) return resample(l.img, 6);
+    return LINE_TEMPLATES[key].map((p) => patch.frame.toImg(p.x, p.y));
+  };
 
   function buildAI(): ImageData {
     const W = canvas.width, H = canvas.height;
@@ -31,7 +57,7 @@ export function handViewer(cap: HandCapture, a: Analysis, patch: PalmPatch, onLi
     const f = patch.frame;
     for (let y = 0; y < H; y++)
       for (let x = 0; x < W; x++) {
-        const uv = f.toUV({ x: x / k + x0, y: y / k + y0 });
+        const uv = f.toUV(toImg({ x, y }));
         const p = patch.pxAt(uv.x, uv.y);
         const i = Math.round(p.x), j = Math.round(p.y);
         if (i < 0 || j < 0 || i >= patch.w || j >= patch.h) continue;
@@ -48,13 +74,14 @@ export function handViewer(cap: HandCapture, a: Analysis, patch: PalmPatch, onLi
   }
 
   function render(progress = 1) {
+    const lw = Math.max(3, canvas.width / 180);
     g.save();
     if (mirrored) { g.translate(canvas.width, 0); g.scale(-1, 1); }
     g.clearRect(0, 0, canvas.width, canvas.height);
     g.drawImage(cap.image, x0, y0, cw, ch, 0, 0, canvas.width, canvas.height);
-    g.fillStyle = layers.ai ? 'rgba(4,6,20,0.72)' : 'rgba(10,6,30,0.18)';
+    g.fillStyle = layers.ai ? 'rgba(4,6,20,0.72)' : editing ? 'rgba(10,6,30,0.05)' : 'rgba(10,6,30,0.18)';
     g.fillRect(0, 0, canvas.width, canvas.height);
-    if (layers.ai) {
+    if (layers.ai && !editing) {
       aiImage ??= buildAI();
       const tmp = document.createElement('canvas');
       tmp.width = canvas.width; tmp.height = canvas.height;
@@ -62,44 +89,90 @@ export function handViewer(cap: HandCapture, a: Analysis, patch: PalmPatch, onLi
       g.drawImage(tmp, 0, 0);
     }
     const P = lm.map(toC);
-    if (layers.skeleton) drawSkeleton(g, P, canvas.width / 700, 'rgba(255,255,255,0.8)', Math.min(1, progress / 0.35));
-    if (layers.lines) {
-      const order: LineKey[] = ['heart', 'head', 'life', 'fate'];
-      order.forEach((key, i) => {
+    if (layers.skeleton && !editing) drawSkeleton(g, P, canvas.width / 700, 'rgba(255,255,255,0.8)', Math.min(1, progress / 0.35));
+    if (editing) {
+      for (const key of KEYS) {
+        const c = ctrlOf(key);
+        if (!c) continue;
+        const pts = smoothCurve(c, 8).map(toC);
+        g.globalAlpha = key === sel ? 1 : 0.35;
+        glowStroke(g, pts, LINE_COLORS[key], key === sel ? lw * 0.8 : lw * 0.6);
+        g.globalAlpha = 1;
+      }
+      const c = ctrlOf(sel);
+      if (c) {
+        g.lineWidth = 3;
+        for (const p of c.map(toC)) {
+          g.beginPath();
+          g.arc(p.x, p.y, Math.max(9, canvas.width / 70), 0, Math.PI * 2);
+          g.fillStyle = 'rgba(255,255,255,0.92)';
+          g.fill();
+          g.strokeStyle = LINE_COLORS[sel];
+          g.stroke();
+        }
+      }
+    } else if (layers.lines) {
+      KEYS.forEach((key, i) => {
         const l = a.lines[key];
         if (!l.present) return;
         const start = 0.3 + i * 0.16;
         const pr = Math.max(0, Math.min(1, (progress - start) / 0.25));
-        if (pr > 0) glowStroke(g, l.img.map(toC), LINE_COLORS[key], Math.max(3, canvas.width / 180), pr);
+        if (pr > 0) glowStroke(g, l.img.map(toC), LINE_COLORS[key], lw, pr);
       });
     }
     g.restore();
   }
 
-  // reveal animation
-  const t0 = performance.now();
-  const anim = () => {
-    const p = (performance.now() - t0) / 2600;
-    render(Math.min(1, p));
-    if (p < 1) requestAnimationFrame(anim);
-  };
-  requestAnimationFrame(anim);
+  if (opts.animate !== false) {
+    const t0 = performance.now();
+    const anim = () => {
+      const p = (performance.now() - t0) / 2600;
+      render(Math.min(1, p));
+      if (p < 1) requestAnimationFrame(anim);
+    };
+    requestAnimationFrame(anim);
+  } else render(1);
 
-  canvas.addEventListener('click', (e) => {
+  const canvasPt = (e: PointerEvent): Pt => {
     const r = canvas.getBoundingClientRect();
     let cx = ((e.clientX - r.left) / r.width) * canvas.width;
     const cy = ((e.clientY - r.top) / r.height) * canvas.height;
     if (mirrored) cx = canvas.width - cx;
+    return { x: cx, y: cy };
+  };
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const p = canvasPt(e);
+    if (editing) {
+      const c = ctrlOf(sel);
+      if (!c) return;
+      let bd = Math.max(26, canvas.width / 25);
+      drag = -1;
+      c.map(toC).forEach((q, i) => { const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < bd) { bd = d; drag = i; } });
+      if (drag >= 0) { ctrl[sel] = c; canvas.setPointerCapture(e.pointerId); e.preventDefault(); }
+      return;
+    }
     let best: LineKey | null = null, bd = canvas.width * 0.05;
-    for (const key of ['heart', 'head', 'life', 'fate'] as LineKey[]) {
+    for (const key of KEYS) {
       const pts = a.lines[key].present ? a.lines[key].img.map(toC) : [];
       for (let i = 1; i < pts.length; i++) {
-        const d = distToSegment({ x: cx, y: cy }, pts[i - 1], pts[i]);
+        const d = distToSegment(p, pts[i - 1], pts[i]);
         if (d < bd) { bd = d; best = key; }
       }
     }
-    if (best) onLineClick?.(best);
+    if (best) opts.onLineClick?.(best);
   });
+  canvas.addEventListener('pointermove', (e) => {
+    if (!editing || drag < 0) return;
+    const c = ctrl[sel];
+    if (!c) return;
+    const p = canvasPt(e);
+    c[drag] = toImg({ x: Math.max(0, Math.min(canvas.width, p.x)), y: Math.max(0, Math.min(canvas.height, p.y)) });
+    render(1);
+  });
+  const endDrag = () => { drag = -1; };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
 
   const toggle = (key: keyof typeof layers, label: string) => {
     const b = h('button', { 'aria-pressed': String(layers[key]) }, label);
@@ -112,9 +185,56 @@ export function handViewer(cap: HandCapture, a: Analysis, patch: PalmPatch, onLi
     return b;
   };
   const aiNote = h('p', { class: 'tiny', hidden: true }, t('aiSeesNote'));
+  const layerBar = h('div', { class: 'layers' }, toggle('skeleton', t('layerSkeleton')), toggle('lines', t('layerLines')), toggle('ai', '✨ ' + t('layerAI')));
+
+  // ---- editor UI
+  const editBar = h('div', { class: 'editbar stack', hidden: true });
+  const picker = h('div', { class: 'layers' });
+  const renderPicker = () => {
+    picker.replaceChildren(...KEYS.map((key) => {
+      const missing = ctrlOf(key) === null;
+      const b = h('button', { 'aria-pressed': String(key === sel), style: `--c:${LINE_COLORS[key]}`, class: 'linechip' }, (missing ? '○ ' : '● ') + tr(LINE_INFO[key].name));
+      b.addEventListener('click', () => { sel = key; if (ctrl[key] === null) delete ctrl[key]; renderPicker(); render(1); });
+      return b;
+    }));
+  };
+  const finish = (save: boolean) => {
+    if (save) for (const key of KEYS) if (ctrl[key] !== undefined) applyLineEdit(res, key, ctrl[key] ?? null);
+    for (const key of KEYS) delete ctrl[key];
+    editing = false;
+    canvas.classList.remove('editing');
+    editBar.hidden = true;
+    layerBar.hidden = false;
+    editBtn.hidden = false;
+    render(1);
+    if (save) opts.onEdited?.();
+  };
+  editBar.append(
+    h('div', { class: 'tiny' }, t('editHint')),
+    picker,
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary', onclick: () => finish(true) }, t('editDone')),
+      h('button', { class: 'btn ghost', onclick: () => { ctrl[sel] = null; renderPicker(); render(1); } }, t('editRemove')),
+      h('button', { class: 'btn ghost', onclick: () => finish(false) }, t('editReset')),
+    ),
+  );
+  const editBtn = h('button', { class: 'btn ghost small', style: 'padding:6px 12px', hidden: !opts.onEdited }, '✏️ ', t('editLines'));
+  editBtn.addEventListener('click', () => {
+    editing = true;
+    sel = KEYS.find((key) => a.lines[key].present) ?? 'heart';
+    canvas.classList.add('editing');
+    editBar.hidden = false;
+    layerBar.hidden = true;
+    editBtn.hidden = true;
+    renderPicker();
+    render(1);
+    track('line_edit_open');
+  });
+
   return h('div', { class: 'viewer-wrap' },
     h('div', { class: 'viewer' }, canvas, cap.source === 'demo' ? h('span', { class: 'tag badge' }, t('sampleBadge')) : null),
-    h('div', { class: 'layers' }, toggle('skeleton', t('layerSkeleton')), toggle('lines', t('layerLines')), toggle('ai', '✨ ' + t('layerAI'))),
+    h('div', { class: 'row', style: 'justify-content:space-between;align-items:flex-start' }, layerBar, editBtn),
+    editBar,
     aiNote,
   );
 }
@@ -227,7 +347,7 @@ export function lineCards(a: Analysis) {
     const l = a.lines[key];
     const r = reading[key];
     return h('div', { class: 'card line-card', id: `line-${key}`, style: `--c:${LINE_COLORS[key]}` },
-      h('h3', null, h('span', null, tr(info.name)), h('small', null, tr(info.anatomy))),
+      h('h3', null, h('span', null, tr(info.name), l.edited ? h('span', { class: 'pill', style: 'margin-left:8px' }, '✏️ ', t('edited')) : null), h('small', null, tr(info.anatomy))),
       l.present
         ? h('div', { class: 'row small sci' },
             h('span', { class: 'pill mono' }, `L ${l.length.toFixed(2)}`),
@@ -286,6 +406,7 @@ export function barnumCard(a: Analysis) {
         : (vi ? 'Bạn hoài nghi hơn phần lớn mọi người. Tinh thần khoa học đấy!' : 'You are more skeptical than most people. Very scientific!'))),
     );
     reveal.remove();
+    track('barnum_rated', rating);
   });
   return h('div', { class: 'card stack barnum mys' },
     h('div', { class: 'row', style: 'justify-content:space-between' }, h('h3', { style: 'margin:0' }, t('portrait')), h('span', { class: 'tag' }, 'EXPERIMENT')),
@@ -298,7 +419,8 @@ export function barnumCard(a: Analysis) {
 
 // ----------------------------------------------------------- share modal
 
-export function openShareModal(make: (f: CardFormat) => HTMLCanvasElement, filename: string, text: string, url: string) {
+export function openShareModal(make: (f: CardFormat) => HTMLCanvasElement, filename: string, text: string, url: string, kind = 'card', extra?: Node) {
+  track('card_open', kind);
   let fmt: CardFormat = 'story';
   const img = h('img', { alt: '' }) as HTMLImageElement;
   const draw = () => (img.src = make(fmt).toDataURL('image/png'));
@@ -314,11 +436,44 @@ export function openShareModal(make: (f: CardFormat) => HTMLCanvasElement, filen
       h('div', { class: 'row', style: 'justify-content:space-between' }, seg, h('button', { class: 'btn ghost', onclick: close }, '✕')),
       img,
       h('div', { class: 'row', style: 'justify-content:center' },
-        h('button', { class: 'btn primary', onclick: async () => { const r = await shareCanvas(make(fmt), filename, text, url); if (r === 'downloaded') toast(t('download') + ' ✓'); } }, t('share')),
-        h('button', { class: 'btn', onclick: () => { make(fmt).toBlob((b) => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = filename; a.click(); }); } }, t('download')),
+        h('button', { class: 'btn primary', onclick: async () => { const r = await shareCanvas(make(fmt), filename, text, url); track('card_share', `${kind}-${fmt}-${r}`); if (r === 'downloaded') toast(t('download') + ' ✓'); } }, t('share')),
+        h('button', { class: 'btn', onclick: () => { track('card_share', `${kind}-${fmt}-downloaded`); make(fmt).toBlob((b) => { if (!b) return; const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = filename; a.click(); }); } }, t('download')),
       ),
+      extra ?? null,
     ),
   );
   document.body.append(modal);
   draw();
+}
+
+// ------------------------------------------------------------- video
+
+export function videoButton(kind: string, scene: () => FrameFn, filename: string, text: string, url: string) {
+  const label = h('span', null, t('video'));
+  const bar = h('div', { class: 'meter', hidden: true }, h('i', { style: 'width:0%' }));
+  const btn = h('button', { class: 'btn', style: 'width:100%' }, '🎬 ', label);
+  btn.addEventListener('click', async () => {
+    if (!pickMime()) { toast(t('videoUnsupported')); return; }
+    btn.setAttribute('disabled', '');
+    label.textContent = t('recording');
+    bar.hidden = false;
+    try {
+      const { blob, ext } = await recordVideo(scene(), (p) => ((bar.firstElementChild as HTMLElement).style.width = `${Math.round(p * 100)}%`));
+      track('video_made', kind);
+      const file = new File([blob], `${filename}.${ext}`, { type: blob.type });
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+      let shared = false;
+      if (nav.share && nav.canShare?.({ files: [file] })) {
+        try { await nav.share({ files: [file], text: `${text} ${url}` }); shared = true; } catch { /* fall back */ }
+      }
+      if (!shared) { downloadBlob(blob, file.name); toast(t('download') + ' ✓'); }
+    } catch (e) {
+      console.error(e);
+      toast(t('videoUnsupported'));
+    }
+    label.textContent = t('video');
+    bar.hidden = true;
+    btn.removeAttribute('disabled');
+  });
+  return h('div', { class: 'stack' }, btn, bar);
 }
