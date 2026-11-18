@@ -54,13 +54,6 @@ npm run dev           # http://localhost:5173/palmlens/
 
 Bỏ qua `fetch-model` thì app tự lấy mô hình từ máy chủ của Google khi chạy.
 
-## Triển khai lên GitHub Pages
-
-1. Đẩy code lên repo `palmlens` (nhánh `main`).
-2. Vào **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. Workflow `.github/workflows/deploy.yml` sẽ build và đăng lên `https://<user>.github.io/palmlens/`.
-
-Nếu đổi tên repo, sửa `base` trong `vite.config.ts`.
 
 ## Đo lượng truy cập (tuỳ chọn)
 
